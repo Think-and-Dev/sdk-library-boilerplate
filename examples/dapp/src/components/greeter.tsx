@@ -1,13 +1,14 @@
 import React from 'react'
 import SDK from 'sdk-library-boilerplate'
-import { useWeb3Context } from '../contexts/web3Context'
+import { useWeb3Context, Web3ContextStatus } from '../contexts/web3Context'
 import { ethers } from 'ethers'
 import { useToasts } from 'react-toast-notifications'
 import { WaitingTransactionMessage } from './messages/waitingTransactionMessage'
 import { SuccessTransactionMessage } from './messages/successTransactionMessage'
+import { DEFAULT_NETWORK_ID } from '../config/constants'
 
 export const Greeter = () => {
-  const { provider } = useWeb3Context()
+  const { provider, status } = useWeb3Context()
   const { addToast, updateToast } = useToasts()
 
   const [greeter, setGreeter] = React.useState<Maybe<string>>('...')
@@ -27,22 +28,36 @@ export const Greeter = () => {
     fetchGreeter()
   }, [provider])
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setNewGreeter(event.target.value)
-  }
+  }, [])
 
-  const handleSubmit = async (event: React.FormEvent<EventTarget>) => {
-    event.preventDefault()
-    setIsExecuted(true)
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<EventTarget>) => {
+      event.preventDefault()
 
-    if (provider && newGreeter) {
-      const signer =
-        provider instanceof ethers.providers.Web3Provider ? await provider.getSigner() : undefined
-      const sdk = await SDK.create(provider, signer)
+      if (!provider || !newGreeter) {
+        return
+      }
+
+      setIsExecuted(true)
+
       try {
+        const signer =
+          provider instanceof ethers.providers.Web3Provider ? await provider.getSigner() : undefined
+        if (!signer) {
+          throw new Error('You need to be connected to your wallet')
+        }
+
+        const networkId =
+          provider instanceof ethers.providers.Web3Provider
+            ? (await provider.getNetwork()).chainId
+            : DEFAULT_NETWORK_ID
+
+        const sdk = await SDK.create(provider, signer)
         const { getReceipt, hash } = await sdk.instance.modules.greeter.setGreeting(newGreeter)
 
-        addToast(<WaitingTransactionMessage hash={hash} />, {
+        addToast(<WaitingTransactionMessage hash={hash} networkId={networkId} />, {
           appearance: 'info',
           id: hash,
           autoDismiss: false
@@ -51,7 +66,7 @@ export const Greeter = () => {
         await getReceipt()
 
         updateToast(hash, {
-          content: <SuccessTransactionMessage hash={hash} />,
+          content: <SuccessTransactionMessage hash={hash} networkId={networkId} />,
           appearance: 'success',
           autoDismiss: true
         })
@@ -62,10 +77,11 @@ export const Greeter = () => {
           autoDismiss: false
         })
       }
-    }
 
-    setIsExecuted(false)
-  }
+      setIsExecuted(false)
+    },
+    [provider, newGreeter]
+  )
 
   return (
     <section id="greeter">
@@ -76,13 +92,18 @@ export const Greeter = () => {
         <p className="grouped">
           <input
             type="text"
-            disabled={isExecuted}
+            disabled={isExecuted || status === Web3ContextStatus.Infura}
             name="greeter"
             id="greeter"
             onChange={handleInputChange}
             placeholder="Greeter"
           />
-          <button disabled={isExecuted} className="button primary" type="submit" value="submit">
+          <button
+            disabled={isExecuted || status === Web3ContextStatus.Infura}
+            className="button primary"
+            type="submit"
+            value="submit"
+          >
             Submit
           </button>
         </p>
